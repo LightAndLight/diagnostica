@@ -13,7 +13,7 @@ main =
         let
           input =
             render defaultConfig "filename" "here are the file contents" $
-            caret 0 0 (Message "this is a message")
+            emit 0 (Caret 0) (Message "this is a message")
           output =
             Lazy.unlines
             [ "filename:0:0: \ESC[91;1merror: \ESC[39;0mthis is a message"
@@ -26,7 +26,7 @@ main =
         let
           input =
             render defaultConfig "filename" "here are the file contents" $
-            Text.Diagnostic.span 0 5 8 (Message "this is a message")
+            emit 0 (Span 5 8) (Message "this is a message")
           output =
             Lazy.unlines
             [ "filename:0:5: \ESC[91;1merror: \ESC[39;0mthis is a message"
@@ -39,8 +39,8 @@ main =
         let
           input =
             render defaultConfig "filename" "here are the file contents" $
-            caret 0 0 (Message "this is a message") <>
-            Text.Diagnostic.span 0 5 8 (Message "this is another message")
+            emit 0 (Caret 0) (Message "this is a message") <>
+            emit 0 (Span 5 8) (Message "this is another message")
           output =
             Lazy.unlines
             [ "filename:0:0: \ESC[91;1merror: \ESC[39;0mthis is a message"

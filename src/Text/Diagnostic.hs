@@ -2,14 +2,14 @@
 {-# language GeneralizedNewtypeDeriving #-}
 {-# language OverloadedStrings #-}
 module Text.Diagnostic
-  ( Report
-  , Message(..)
+  ( Message(..)
   , Color(..)
   , Colors(..), defaultColors
   , Config(..), defaultConfig
+  , Report
   , render
-  , caret
-  , Text.Diagnostic.span
+  , Diagnostic(..)
+  , emit
   )
 where
 
@@ -22,29 +22,34 @@ import qualified Data.Text.Lazy as Lazy
 import Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as Builder
 
-data D
+data Diagnostic
   = Caret
-  { dLine :: {-# UNPACK #-} !Int
-  , dStartCol :: {-# UNPACK #-} !Int
-  , dMessage :: Message
+  { caretCol :: {-# UNPACK #-} !Int
   }
   | Span
-  { dLine :: {-# UNPACK #-} !Int
-  , dStartCol :: {-# UNPACK #-} !Int
-  , _dEndCol :: {-# UNPACK #-} !Int
-  , dMessage :: Message
-  }
+  { spanFrom :: {-# UNPACK #-} !Int
+  , spanTo :: {-# UNPACK #-} !Int
+  } deriving Eq
+
+data D = D { dLine :: {-# UNPACK #-} !Int, dSort :: Diagnostic, dMessage :: Message }
 
 dSize :: D -> Int
-dSize Caret{} = 1
-dSize (Span _ a b _) = b - a
+dSize d =
+  case dSort d of
+    Caret{} -> 1
+    Span a b -> b - a
+
+dStartCol :: D -> Int
+dStartCol d =
+  case dSort d of
+    Caret a -> a
+    Span a _ -> a
 
 instance Eq D where
-  Caret line start msg == Caret line' start' msg' =
-    line == line' && start == start' && msg == msg'
-  Span line start end msg == Span line' start' end' msg' =
-    line == line' && start == start' && end == end' && msg == msg'
-  _ == _ = False
+  D dline dsort dmsg == D dline' dsort' dmsg' =
+    dline == dline' &&
+    dsort == dsort' &&
+    dmsg == dmsg'
 
 instance Ord D where
   compare a b =
@@ -265,14 +270,14 @@ render cfg filePath fileContents =
           topPrefix <> Builder.singleton '\n' <>
           numberedPrefix <> Builder.fromText lineContents <> Builder.singleton '\n' <>
           unnumberedPrefix <>
-          case d of
-            Caret _ dcol _ ->
-              Builder.fromText (Text.replicate dcol $ Text.singleton ' ') <>
+          case dSort d of
+            Caret col ->
+              Builder.fromText (Text.replicate col $ Text.singleton ' ') <>
               renderCaret cfg (colors cfg) <>
               Builder.singleton '\n'
-            Span _ dstartcol dendcol _ ->
-              Builder.fromText (Text.replicate dstartcol $ Text.singleton ' ') <>
-              renderSpan cfg (colors cfg) (dendcol - dstartcol) <>
+            Span startcol endcol ->
+              Builder.fromText (Text.replicate startcol $ Text.singleton ' ') <>
+              renderSpan cfg (colors cfg) (endcol - startcol) <>
               Builder.singleton '\n'
       in
         errorMessage
@@ -294,10 +299,6 @@ render cfg filePath fileContents =
               go line lineContents contents rest
             GT -> mempty
 
-caret :: Int -> Int -> Message -> Report
-caret line col msg =
-  Report . Set.singleton $ Caret line col msg
-
-span :: Int -> Int -> Int -> Message -> Report
-span line startCol endCol msg =
-  Report . Set.singleton $ Span line startCol endCol msg
+emit :: Int -> Diagnostic -> Message -> Report
+emit line sort msg =
+  Report . Set.singleton $ D line sort msg
