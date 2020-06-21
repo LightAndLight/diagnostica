@@ -4,8 +4,7 @@
 module Text.Diagnostic
   ( Diagnostic
   , Message(..)
-  , module ANSI
-  , Style(..)
+  , Color(..)
   , Colors(..), defaultColors
   , Config(..), defaultConfig
   , render
@@ -82,17 +81,17 @@ data Message
   { msgTitle :: Text
   } deriving (Eq, Ord)
 
-data Style
-  = Style
+data Color
+  = Color
   { consoleIntensity :: ANSI.ConsoleIntensity
   , colorIntensity :: ANSI.ColorIntensity
   , color :: ANSI.Color
   }
 
-styleCode :: Style -> Text
-styleCode style =
-  case style of
-    Style conI colI col ->
+colorCode :: Color -> Text
+colorCode color =
+  case color of
+    Color conI colI col ->
       case conI of
         ANSI.BoldIntensity ->
           case colI of
@@ -161,25 +160,25 @@ styleCode style =
                 ANSI.Cyan -> "\ESC[36m"
                 ANSI.White -> "\ESC[37m"
 
-endStyleCode :: Style -> Text
-endStyleCode _ = "\ESC[39;0m"
+endColorCode :: Color -> Text
+endColorCode _ = "\ESC[39;0m"
 
 data Colors
   = Colors
-  { errors :: Style
-  , margin :: Style
+  { errors :: Color
+  , margin :: Color
   }
 
 defaultColors :: Colors
 defaultColors =
   Colors
-  { errors = Style ANSI.BoldIntensity ANSI.Vivid ANSI.Red
-  , margin = Style ANSI.BoldIntensity ANSI.Dull ANSI.Blue
+  { errors = Color ANSI.BoldIntensity ANSI.Vivid ANSI.Red
+  , margin = Color ANSI.BoldIntensity ANSI.Dull ANSI.Blue
   }
 
 withColor ::
   Maybe Colors ->
-  (Colors -> Style) ->
+  (Colors -> Color) ->
   Builder ->
   Builder
 withColor mColors get b =
@@ -189,9 +188,9 @@ withColor mColors get b =
       let
         color = get colors
       in
-        Builder.fromText (styleCode color) <>
+        Builder.fromText (colorCode color) <>
         b <>
-        Builder.fromText (endStyleCode color)
+        Builder.fromText (endColorCode color)
 
 data Config
   = Config
@@ -235,7 +234,7 @@ render cfg filePath fileContents =
     errorsColor x =
       case colors cfg of
         Just cs ->
-          Builder.fromText (styleCode $ errors cs) <>
+          Builder.fromText (colorCode $ errors cs) <>
           x <>
           Builder.fromText "\ESC[39;0m"
         Nothing ->
@@ -244,7 +243,7 @@ render cfg filePath fileContents =
     marginColor x =
       case colors cfg of
         Just cs ->
-          Builder.fromText (styleCode $ margin cs) <>
+          Builder.fromText (colorCode $ margin cs) <>
           x <>
           Builder.fromText "\ESC[39;0m"
         Nothing ->
