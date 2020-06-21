@@ -229,7 +229,7 @@ render cfg filePath fileContents =
               topPrefix =
                 marginColor $
                 Builder.fromText (Text.replicate (lineNumberLength + 1) (Text.singleton ' ')) <>
-                Builder.fromText "|\n"
+                Builder.singleton '|'
               numberedPrefix =
                 marginColor $ lineNumberString <> Builder.fromText " | "
               unnumberedPrefix =
@@ -246,7 +246,7 @@ render cfg filePath fileContents =
 
               errorMessage =
                 titleLine <> Builder.singleton '\n' <>
-                topPrefix <>
+                topPrefix <> Builder.singleton '\n' <>
                 numberedPrefix <> Builder.fromText lineContents <> Builder.singleton '\n' <>
                 unnumberedPrefix <>
                 case d of
