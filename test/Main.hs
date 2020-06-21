@@ -21,6 +21,6 @@ main =
             [ "filename:0:0: \ESC[91;1merror: \ESC[39;0mthis is a message"
             , "\ESC[34;1m  |\ESC[39;0m"
             , "\ESC[34;1m0 | \ESC[39;0mhere are the file contents"
-            , "\ESC[34;1m  | \ESC[39;0m^"
+            , "\ESC[34;1m  | \ESC[39;0m\ESC[91;1m^\ESC[39;0m"
             ]
         input `shouldBe` output

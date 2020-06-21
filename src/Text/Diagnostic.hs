@@ -251,7 +251,8 @@ render cfg filePath fileContents =
                 unnumberedPrefix <>
                 case d of
                   Caret _ dcol dmsg ->
-                    Builder.fromText (Text.replicate dcol $ Text.singleton ' ') <> Builder.fromText "^\n"
+                    Builder.fromText (Text.replicate dcol $ Text.singleton ' ') <>
+                    errorsColor (Builder.singleton '^') <> Builder.singleton '\n'
                   Span _ dstartcol dendcol dmsg ->
                     Builder.fromText (Text.replicate dstartcol $ Text.singleton ' ') <>
                     Builder.fromText (Text.replicate (dendcol - dstartcol) $ Text.singleton '^') <>
