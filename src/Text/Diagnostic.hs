@@ -8,6 +8,7 @@ module Text.Diagnostic
   , Config(..), defaultConfig
   , Report
   , render
+  , renderWith
   , Diagnostic(..)
   , emit
   )
@@ -31,6 +32,12 @@ data Diagnostic
   , spanTo :: {-# UNPACK #-} !Int
   } deriving Eq
 
+diagStartCol :: Diagnostic -> Int
+diagStartCol d =
+  case d of
+    Caret a -> a
+    Span a _ -> a
+
 data D = D { dLine :: {-# UNPACK #-} !Int, dSort :: Diagnostic, dMessage :: Message }
 
 dSize :: D -> Int
@@ -40,10 +47,7 @@ dSize d =
     Span a b -> b - a
 
 dStartCol :: D -> Int
-dStartCol d =
-  case dSort d of
-    Caret a -> a
-    Span a _ -> a
+dStartCol = diagStartCol . dSort
 
 instance Eq D where
   D dline dsort dmsg == D dline' dsort' dmsg' =
@@ -203,13 +207,14 @@ defaultConfig =
         withColor mColors errors (Builder.singleton '^')
   }
 
-render ::
+renderWith ::
+  (Config -> Text -> Int -> Text -> Diagnostic -> Message -> Builder) ->
   Config ->
   Text -> -- filename
   Text -> -- file contents
   Report ->
   Lazy.Text
-render cfg filePath fileContents =
+renderWith mkErr cfg filePath fileContents =
   let
     (lineContents, fileContents') = nextLine fileContents
   in
@@ -223,6 +228,41 @@ render cfg filePath fileContents =
       in
         (l, cs')
 
+    go :: Int -> Text -> Text -> [D] -> Builder
+    go !line lineContents contents ds =
+      case ds of
+        [] -> mempty
+        [D dline dsort dmsg] ->
+          case compare line dline of
+            LT ->
+              let
+                (lineContents', contents') = nextLine contents
+              in
+                go (line+1) lineContents' contents' ds
+            EQ ->
+              mkErr cfg filePath line lineContents dsort dmsg
+            GT -> mempty
+        D dline dsort dmsg : rest ->
+          case compare line dline of
+            LT ->
+              let
+                (lineContents', contents') = nextLine contents
+              in
+                go (line+1) lineContents' contents' ds
+            EQ ->
+              mkErr cfg filePath line lineContents dsort dmsg <> Builder.singleton '\n' <>
+              go line lineContents contents rest
+            GT -> mempty
+
+render ::
+  Config ->
+  Text -> -- filename
+  Text -> -- file contents
+  Report ->
+  Lazy.Text
+render cfg =
+  renderWith mkErr cfg
+  where
     errorsColor x =
       case colors cfg of
         Just cs ->
@@ -241,7 +281,8 @@ render cfg filePath fileContents =
         Nothing ->
           x
 
-    mkErrorMessage line lineContents d =
+    mkErr :: Config -> Text -> Int -> Text -> Diagnostic -> Message -> Builder
+    mkErr _ filePath line lineContents d msg =
       let
         lineNumber = show line
         lineNumberLength = length lineNumber
@@ -261,16 +302,16 @@ render cfg filePath fileContents =
         titleLine =
           Builder.fromText filePath <> Builder.singleton ':' <>
           lineNumberString <> Builder.singleton ':' <>
-          Builder.fromString (show $ dStartCol d) <> Builder.fromText ": " <>
+          Builder.fromString (show $ diagStartCol  d) <> Builder.fromText ": " <>
           errorsColor (Builder.fromText "error: ") <>
-          Builder.fromText (msgTitle $ dMessage d)
+          Builder.fromText (msgTitle msg)
 
         errorMessage =
           titleLine <> Builder.singleton '\n' <>
           topPrefix <> Builder.singleton '\n' <>
           numberedPrefix <> Builder.fromText lineContents <> Builder.singleton '\n' <>
           unnumberedPrefix <>
-          case dSort d of
+          case d of
             Caret col ->
               Builder.fromText (Text.replicate col $ Text.singleton ' ') <>
               renderCaret cfg (colors cfg) <>
@@ -281,23 +322,6 @@ render cfg filePath fileContents =
               Builder.singleton '\n'
       in
         errorMessage
-
-    go :: Int -> Text -> Text -> [D] -> Builder
-    go !line lineContents contents ds =
-      case ds of
-        [] -> mempty
-        [d] -> mkErrorMessage line lineContents d
-        d : rest ->
-          case compare line (dLine d) of
-            LT ->
-              let
-                (lineContents', contents') = nextLine contents
-              in
-                go (line+1) lineContents' contents' ds
-            EQ ->
-              mkErrorMessage line lineContents d <> Builder.singleton '\n' <>
-              go line lineContents contents rest
-            GT -> mempty
 
 emit :: Int -> Diagnostic -> Message -> Report
 emit line sort msg =
