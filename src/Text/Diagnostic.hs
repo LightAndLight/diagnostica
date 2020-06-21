@@ -69,7 +69,7 @@ instance Ord D where
           EQ ->
             case compare (dSize a) (dSize b) of
               EQ ->
-                compare (dMessage a) (dMessage a)
+                compare (dMessage a) (dMessage b)
               x -> x
           x -> x
       x -> x
@@ -192,8 +192,21 @@ render ::
   Diagnostic ->
   Lazy.Text
 render cfg filePath fileContents =
-  Builder.toLazyText . go 0 fileContents . Set.toAscList . unDiagnostic
+  let
+    (lineContents, fileContents') = nextLine fileContents
+  in
+    Builder.toLazyText . go 0 lineContents fileContents' . Set.toAscList . unDiagnostic
   where
+    nextLine cs =
+      let
+        (l, rest) = Text.span (/= '\n') cs
+        cs' =
+          case Text.uncons rest of
+            Just (_, cs') -> cs'
+            Nothing -> error "render: ran out of contents"
+      in
+        (l, cs')
+
     errorsColor x =
       case colors cfg of
         Just cs ->
@@ -212,66 +225,62 @@ render cfg filePath fileContents =
         Nothing ->
           x
 
-    go :: Int -> Text -> [D] -> Builder
-    go !line contents ds =
+    mkErrorMessage line lineContents d =
+      let
+        lineNumber = show line
+        lineNumberLength = length lineNumber
+        lineNumberString = Builder.fromString lineNumber
+
+        topPrefix =
+          marginColor $
+          Builder.fromText (Text.replicate (lineNumberLength + 1) (Text.singleton ' ')) <>
+          Builder.singleton '|'
+        numberedPrefix =
+          marginColor $ lineNumberString <> Builder.fromText " | "
+        unnumberedPrefix =
+          marginColor $
+          Builder.fromText (Text.replicate (lineNumberLength + 1) (Text.singleton ' ')) <>
+          Builder.fromText "| "
+
+        titleLine =
+          Builder.fromText filePath <> Builder.singleton ':' <>
+          lineNumberString <> Builder.singleton ':' <>
+          Builder.fromString (show $ dStartCol d) <> Builder.fromText ": " <>
+          errorsColor (Builder.fromText "error: ") <>
+          Builder.fromText (msgTitle $ dMessage d)
+
+        errorMessage =
+          titleLine <> Builder.singleton '\n' <>
+          topPrefix <> Builder.singleton '\n' <>
+          numberedPrefix <> Builder.fromText lineContents <> Builder.singleton '\n' <>
+          unnumberedPrefix <>
+          case d of
+            Caret _ dcol dmsg ->
+              Builder.fromText (Text.replicate dcol $ Text.singleton ' ') <>
+              errorsColor (Builder.singleton '^') <> Builder.singleton '\n'
+            Span _ dstartcol dendcol dmsg ->
+              Builder.fromText (Text.replicate dstartcol $ Text.singleton ' ') <>
+              errorsColor (Builder.fromText . Text.replicate (dendcol - dstartcol) $ Text.singleton '^') <>
+              Builder.singleton '\n'
+      in
+        errorMessage
+
+    go :: Int -> Text -> Text -> [D] -> Builder
+    go !line lineContents contents ds =
       case ds of
         [] -> mempty
+        [d] -> mkErrorMessage line lineContents d
         d : rest ->
-          if dLine d == line
-          then
-            let
-              (lineContents, contents') = Text.span (/= '\n') contents
-
-              lineNumber = show line
-              lineNumberLength = length lineNumber
-              lineNumberString = Builder.fromString lineNumber
-
-              topPrefix =
-                marginColor $
-                Builder.fromText (Text.replicate (lineNumberLength + 1) (Text.singleton ' ')) <>
-                Builder.singleton '|'
-              numberedPrefix =
-                marginColor $ lineNumberString <> Builder.fromText " | "
-              unnumberedPrefix =
-                marginColor $
-                Builder.fromText (Text.replicate (lineNumberLength + 1) (Text.singleton ' ')) <>
-                Builder.fromText "| "
-
-              titleLine =
-                Builder.fromText filePath <> Builder.singleton ':' <>
-                lineNumberString <> Builder.singleton ':' <>
-                Builder.fromString (show $ dStartCol d) <> Builder.fromText ": " <>
-                errorsColor (Builder.fromText "error: ") <>
-                Builder.fromText (msgTitle $ dMessage d)
-
-              errorMessage =
-                titleLine <> Builder.singleton '\n' <>
-                topPrefix <> Builder.singleton '\n' <>
-                numberedPrefix <> Builder.fromText lineContents <> Builder.singleton '\n' <>
-                unnumberedPrefix <>
-                case d of
-                  Caret _ dcol dmsg ->
-                    Builder.fromText (Text.replicate dcol $ Text.singleton ' ') <>
-                    errorsColor (Builder.singleton '^') <> Builder.singleton '\n'
-                  Span _ dstartcol dendcol dmsg ->
-                    Builder.fromText (Text.replicate dstartcol $ Text.singleton ' ') <>
-                    Builder.fromText (Text.replicate (dendcol - dstartcol) $ Text.singleton '^') <>
-                    Builder.singleton '\n'
-
-              contents'' =
-                case Text.uncons contents' of
-                  Just (_, contents'') -> contents''
-                  Nothing -> error "render: ran out of contents"
-            in
-              errorMessage <> go (line+1) contents'' rest
-          else
-            let
-              contents' =
-                case Text.uncons $ Text.dropWhile (/= '\n') contents of
-                  Just (_, contents') -> contents'
-                  Nothing -> error "render: ran out of contents"
-            in
-              go (line+1) contents' ds
+          case compare line (dLine d) of
+            LT ->
+              let
+                (lineContents', contents') = nextLine contents
+              in
+                go (line+1) lineContents' contents' ds
+            EQ ->
+              mkErrorMessage line lineContents d <> Builder.singleton '\n' <>
+              go line lineContents contents rest
+            GT -> mempty
 
 caret :: Int -> Int -> Message -> Diagnostic
 caret line col msg =
