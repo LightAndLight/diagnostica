@@ -161,6 +161,9 @@ styleCode style =
                 ANSI.Cyan -> "\ESC[36m"
                 ANSI.White -> "\ESC[37m"
 
+endStyleCode :: Style -> Text
+endStyleCode _ = "\ESC[39;0m"
+
 data Colors
   = Colors
   { errors :: Style
@@ -174,15 +177,37 @@ defaultColors =
   , margin = Style ANSI.BoldIntensity ANSI.Dull ANSI.Blue
   }
 
+withColor ::
+  Maybe Colors ->
+  (Colors -> Style) ->
+  Builder ->
+  Builder
+withColor mColors get b =
+  case mColors of
+    Nothing -> b
+    Just colors ->
+      let
+        color = get colors
+      in
+        Builder.fromText (styleCode color) <>
+        b <>
+        Builder.fromText (endStyleCode color)
+
 data Config
   = Config
   { colors :: Maybe Colors
+  , renderSpan :: Maybe Colors -> Int -> Builder
   }
 
 defaultConfig :: Config
 defaultConfig =
   Config
   { colors = Just defaultColors
+  , renderSpan =
+      \mColors len ->
+        withColor mColors errors
+          (Builder.fromText . Text.replicate len $ Text.singleton '^')
+
   }
 
 render ::
@@ -260,7 +285,7 @@ render cfg filePath fileContents =
               errorsColor (Builder.singleton '^') <> Builder.singleton '\n'
             Span _ dstartcol dendcol dmsg ->
               Builder.fromText (Text.replicate dstartcol $ Text.singleton ' ') <>
-              errorsColor (Builder.fromText . Text.replicate (dendcol - dstartcol) $ Text.singleton '^') <>
+              renderSpan cfg (colors cfg) (dendcol - dstartcol) <>
               Builder.singleton '\n'
       in
         errorMessage
