@@ -7,6 +7,7 @@ import Text.Diagnostic
 main :: IO ()
 main =
   Lazy.putStrLn $
-  render defaultConfig "filename" "here are the file contents" $
-    emit 0 (Caret 0) (Message "this is a message") <>
-    emit 0 (Span 5 8) (Message "this is another message")
+  render defaultConfig "filename" "here are the file contents\nthis is the second line" $
+    emit 1 (Caret 1) (Message "this is a message") <>
+    emit 1 (Span 6 9) (Message "this is another message") <>
+    emit 2 (Caret 6) (Message "this is the third message")

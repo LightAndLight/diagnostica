@@ -2,13 +2,19 @@
 {-# language GeneralizedNewtypeDeriving #-}
 {-# language OverloadedStrings #-}
 module Text.Diagnostic
-  ( Message(..)
+  ( -- * Reports
+    Report
+    -- ** Configuration
+    -- *** Colors
   , Color(..)
   , Colors(..), defaultColors
+    -- *** General
   , Config(..), defaultConfig
-  , Report
+    -- ** Rendering
   , render
   , renderWith
+    -- * Diagnostics
+  , Message(..)
   , Diagnostic(..)
   , emit
   )
@@ -38,7 +44,12 @@ diagStartCol d =
     Caret a -> a
     Span a _ -> a
 
-data D = D { dLine :: {-# UNPACK #-} !Int, dSort :: Diagnostic, dMessage :: Message }
+data D
+  = D
+  { dLine :: {-# UNPACK #-} !Int
+  , dSort :: Diagnostic
+  , dMessage :: Message
+  }
 
 dSize :: D -> Int
 dSize d =
@@ -189,7 +200,10 @@ withColor mColors get b =
 
 data Config
   = Config
-  { colors :: Maybe Colors
+  -- | Enabled: the first line of the file is line 0, and the first column of each line is column 0
+  -- Disabled: the first line of the file is line 1, and the first column of each line is column 1
+  { zeroIndexed :: Bool
+  , colors :: Maybe Colors
   , renderSpan :: Maybe Colors -> Int -> Builder
   , renderCaret :: Maybe Colors -> Builder
   }
@@ -197,7 +211,8 @@ data Config
 defaultConfig :: Config
 defaultConfig =
   Config
-  { colors = Just defaultColors
+  { zeroIndexed = False
+  , colors = Just defaultColors
   , renderSpan =
       \mColors len ->
         withColor mColors errors
@@ -209,14 +224,15 @@ defaultConfig =
 
 renderWith ::
   (Int -> Text -> Diagnostic -> Message -> Builder) ->
+  Int -> -- initial line number
   Text -> -- file contents
   Report ->
   Lazy.Text
-renderWith mkErr fileContents =
+renderWith mkErr lineNumber fileContents =
   let
     (lineContents, fileContents') = nextLine fileContents
   in
-    Builder.toLazyText . go 0 lineContents fileContents' . Set.toAscList . unReport
+    Builder.toLazyText . go lineNumber lineContents fileContents' . Set.toAscList . unReport
   where
     nextLine cs =
       let
@@ -258,25 +274,32 @@ render ::
   Text -> -- file contents
   Report ->
   Lazy.Text
-render cfg filePath = renderWith mkErr
+render cfg filePath = renderWith mkErr (if zeroIndexed cfg then 0 else 1)
   where
-    errorsColor x =
+    errorsColor =
       case colors cfg of
         Just cs ->
+          \x ->
           Builder.fromText (colorCode $ errors cs) <>
           x <>
           Builder.fromText "\ESC[39;0m"
         Nothing ->
-          x
+          id
 
-    marginColor x =
+    marginColor =
       case colors cfg of
         Just cs ->
+          \x ->
           Builder.fromText (colorCode $ margin cs) <>
           x <>
           Builder.fromText "\ESC[39;0m"
         Nothing ->
-          x
+          id
+
+    columnOffset =
+      if zeroIndexed cfg
+      then id
+      else subtract 1
 
     mkErr :: Int -> Text -> Diagnostic -> Message -> Builder
     mkErr line lineContents d msg =
@@ -310,11 +333,11 @@ render cfg filePath = renderWith mkErr
           unnumberedPrefix <>
           case d of
             Caret col ->
-              Builder.fromText (Text.replicate col $ Text.singleton ' ') <>
+              Builder.fromText (Text.replicate (columnOffset col) $ Text.singleton ' ') <>
               renderCaret cfg (colors cfg) <>
               Builder.singleton '\n'
             Span startcol endcol ->
-              Builder.fromText (Text.replicate startcol $ Text.singleton ' ') <>
+              Builder.fromText (Text.replicate (columnOffset startcol) $ Text.singleton ' ') <>
               renderSpan cfg (colors cfg) (endcol - startcol) <>
               Builder.singleton '\n'
       in
