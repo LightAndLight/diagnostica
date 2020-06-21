@@ -196,6 +196,7 @@ data Config
   = Config
   { colors :: Maybe Colors
   , renderSpan :: Maybe Colors -> Int -> Builder
+  , renderCaret :: Maybe Colors -> Builder
   }
 
 defaultConfig :: Config
@@ -206,7 +207,9 @@ defaultConfig =
       \mColors len ->
         withColor mColors errors
           (Builder.fromText . Text.replicate len $ Text.singleton '^')
-
+  , renderCaret =
+      \mColors ->
+        withColor mColors errors (Builder.singleton '^')
   }
 
 render ::
@@ -281,7 +284,8 @@ render cfg filePath fileContents =
           case d of
             Caret _ dcol dmsg ->
               Builder.fromText (Text.replicate dcol $ Text.singleton ' ') <>
-              errorsColor (Builder.singleton '^') <> Builder.singleton '\n'
+              renderCaret cfg (colors cfg) <>
+              Builder.singleton '\n'
             Span _ dstartcol dendcol dmsg ->
               Builder.fromText (Text.replicate dstartcol $ Text.singleton ' ') <>
               renderSpan cfg (colors cfg) (dendcol - dstartcol) <>
