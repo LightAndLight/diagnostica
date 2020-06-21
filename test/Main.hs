@@ -1,9 +1,7 @@
 {-# language OverloadedStrings #-}
 module Main where
 
-import Data.Text (Text)
 import qualified Data.Text.Lazy as Lazy
-import qualified Data.Text.Lazy.IO as Lazy
 import Text.Diagnostic
 import Test.Hspec
 

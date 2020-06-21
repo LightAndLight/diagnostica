@@ -45,7 +45,7 @@ data D
   | Span
   { dLine :: {-# UNPACK #-} !Int
   , dStartCol :: {-# UNPACK #-} !Int
-  , dEndCol :: {-# UNPACK #-} !Int
+  , _dEndCol :: {-# UNPACK #-} !Int
   , dMessage :: Message
   }
 
@@ -89,8 +89,8 @@ data Color
   }
 
 colorCode :: Color -> Text
-colorCode color =
-  case color of
+colorCode c =
+  case c of
     Color conI colI col ->
       case conI of
         ANSI.BoldIntensity ->
@@ -184,13 +184,13 @@ withColor ::
 withColor mColors get b =
   case mColors of
     Nothing -> b
-    Just colors ->
+    Just cs ->
       let
-        color = get colors
+        c = get cs
       in
-        Builder.fromText (colorCode color) <>
+        Builder.fromText (colorCode c) <>
         b <>
-        Builder.fromText (endColorCode color)
+        Builder.fromText (endColorCode c)
 
 data Config
   = Config
@@ -228,9 +228,7 @@ render cfg filePath fileContents =
       let
         (l, rest) = Text.span (/= '\n') cs
         cs' =
-          case Text.uncons rest of
-            Just (_, cs') -> cs'
-            Nothing -> error "render: ran out of contents"
+          maybe (error "render: ran out of contents") snd (Text.uncons rest)
       in
         (l, cs')
 
@@ -282,11 +280,11 @@ render cfg filePath fileContents =
           numberedPrefix <> Builder.fromText lineContents <> Builder.singleton '\n' <>
           unnumberedPrefix <>
           case d of
-            Caret _ dcol dmsg ->
+            Caret _ dcol _ ->
               Builder.fromText (Text.replicate dcol $ Text.singleton ' ') <>
               renderCaret cfg (colors cfg) <>
               Builder.singleton '\n'
-            Span _ dstartcol dendcol dmsg ->
+            Span _ dstartcol dendcol _ ->
               Builder.fromText (Text.replicate dstartcol $ Text.singleton ' ') <>
               renderSpan cfg (colors cfg) (dendcol - dstartcol) <>
               Builder.singleton '\n'
