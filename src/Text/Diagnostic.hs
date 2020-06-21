@@ -208,13 +208,11 @@ defaultConfig =
   }
 
 renderWith ::
-  (Config -> Text -> Int -> Text -> Diagnostic -> Message -> Builder) ->
-  Config ->
-  Text -> -- filename
+  (Int -> Text -> Diagnostic -> Message -> Builder) ->
   Text -> -- file contents
   Report ->
   Lazy.Text
-renderWith mkErr cfg filePath fileContents =
+renderWith mkErr fileContents =
   let
     (lineContents, fileContents') = nextLine fileContents
   in
@@ -240,7 +238,7 @@ renderWith mkErr cfg filePath fileContents =
               in
                 go (line+1) lineContents' contents' ds
             EQ ->
-              mkErr cfg filePath line lineContents dsort dmsg
+              mkErr line lineContents dsort dmsg
             GT -> mempty
         D dline dsort dmsg : rest ->
           case compare line dline of
@@ -250,7 +248,7 @@ renderWith mkErr cfg filePath fileContents =
               in
                 go (line+1) lineContents' contents' ds
             EQ ->
-              mkErr cfg filePath line lineContents dsort dmsg <> Builder.singleton '\n' <>
+              mkErr line lineContents dsort dmsg <> Builder.singleton '\n' <>
               go line lineContents contents rest
             GT -> mempty
 
@@ -260,8 +258,7 @@ render ::
   Text -> -- file contents
   Report ->
   Lazy.Text
-render cfg =
-  renderWith mkErr cfg
+render cfg filePath = renderWith mkErr
   where
     errorsColor x =
       case colors cfg of
@@ -281,8 +278,8 @@ render cfg =
         Nothing ->
           x
 
-    mkErr :: Config -> Text -> Int -> Text -> Diagnostic -> Message -> Builder
-    mkErr _ filePath line lineContents d msg =
+    mkErr :: Int -> Text -> Diagnostic -> Message -> Builder
+    mkErr line lineContents d msg =
       let
         lineNumber = show line
         lineNumberLength = length lineNumber
