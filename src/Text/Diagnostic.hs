@@ -2,7 +2,7 @@
 {-# language GeneralizedNewtypeDeriving #-}
 {-# language OverloadedStrings #-}
 module Text.Diagnostic
-  ( Diagnostic
+  ( Report
   , Message(..)
   , Color(..)
   , Colors(..), defaultColors
@@ -21,20 +21,6 @@ import qualified Data.Text as Text
 import qualified Data.Text.Lazy as Lazy
 import Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as Builder
-
-{-
-
-thingo.file:3:22: error: short error title
-   |
-23 | the line on which it occurred
-   |                      ^
-
-other.file:42:22: error: short error title
-   |
-33 | the line on which it occurred
-   |                      ^^^^^^^^
-
--}
 
 data D
   = Caret
@@ -73,7 +59,7 @@ instance Ord D where
           x -> x
       x -> x
 
-newtype Diagnostic = Diagnostic { unDiagnostic :: Set D }
+newtype Report = Report { unReport :: Set D }
   deriving (Semigroup, Monoid)
 
 data Message
@@ -216,13 +202,13 @@ render ::
   Config ->
   Text -> -- filename
   Text -> -- file contents
-  Diagnostic ->
+  Report ->
   Lazy.Text
 render cfg filePath fileContents =
   let
     (lineContents, fileContents') = nextLine fileContents
   in
-    Builder.toLazyText . go 0 lineContents fileContents' . Set.toAscList . unDiagnostic
+    Builder.toLazyText . go 0 lineContents fileContents' . Set.toAscList . unReport
   where
     nextLine cs =
       let
@@ -308,10 +294,10 @@ render cfg filePath fileContents =
               go line lineContents contents rest
             GT -> mempty
 
-caret :: Int -> Int -> Message -> Diagnostic
+caret :: Int -> Int -> Message -> Report
 caret line col msg =
-  Diagnostic . Set.singleton $ Caret line col msg
+  Report . Set.singleton $ Caret line col msg
 
-span :: Int -> Int -> Int -> Message -> Diagnostic
+span :: Int -> Int -> Int -> Message -> Report
 span line startCol endCol msg =
-  Diagnostic . Set.singleton $ Span line startCol endCol msg
+  Report . Set.singleton $ Span line startCol endCol msg
