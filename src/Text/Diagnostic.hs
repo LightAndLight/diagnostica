@@ -276,7 +276,13 @@ renderWith mkErr cfg fileContents (Report positions offsets) =
         cs' =
           maybe (error "render: ran out of contents") snd (Text.uncons rest)
       in
-        (lLen, l, cs')
+        -- either span finds a newline, or it consumes the whole string
+        -- in the former case, the +1 allows offsets to point to the newline character of a line
+        -- in the latter, it allows offsets to point to the end of the file
+        ( lLen + 1
+        , l
+        , cs'
+        )
 
     fetchOffseted1 colOffset lineStartOffset lineContentsLen line ps o@(Offseted off osort omsg) rest =
       let
@@ -289,7 +295,8 @@ renderWith mkErr cfg fileContents (Report positions offsets) =
             (# | | (# ps, rest, Positioned line (localOff + colOffset) osort omsg #) #)
           else -- the offset is on a later line
             (# | () | #)
-        else error $ "internal error: " <> show o <> " was left behind"
+        else
+          error $ "internal error: " <> show o <> " was left behind"
 
     fetchOffseted ::
       Int ->
@@ -342,7 +349,7 @@ renderWith mkErr cfg fileContents (Report positions offsets) =
           let
             (lineContentsLen', lineContents', contents') = nextLine contents
           in
-            go colOffset (lineStartOffset+lineContentsLen+1) (line+1) lineContents' lineContentsLen' contents' ps os
+            go colOffset (lineStartOffset+lineContentsLen) (line+1) lineContents' lineContentsLen' contents' ps os
         (# | | (# ps', os', Positioned pline pcol psort pmsg #) #) ->
           if null ps' && null os'
           then
