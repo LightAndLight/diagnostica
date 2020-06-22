@@ -36,9 +36,8 @@ import qualified Data.Text.Lazy.Builder as Builder
 
 data Diagnostic
   = Caret
-  | Span
-  { spanLength :: {-# UNPACK #-} !Int
-  } deriving (Eq, Ord, Show)
+  | Span {-# UNPACK #-} !Int
+  deriving (Eq, Ord, Show)
 
 data Position
   = Offset {-# UNPACK #-} !Int
