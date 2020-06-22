@@ -1,6 +1,7 @@
 {-# language BangPatterns #-}
 {-# language GeneralizedNewtypeDeriving #-}
 {-# language OverloadedStrings #-}
+{-# language UnboxedSums, UnboxedTuples #-}
 module Text.Diagnostic
   ( -- * Reports
     Report
@@ -14,6 +15,7 @@ module Text.Diagnostic
   , render
   , renderWith
     -- * Diagnostics
+  , Position(..)
   , Message(..)
   , Diagnostic(..)
   , emit
@@ -25,67 +27,53 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
+import Data.Text.Internal (Text(Text), text)
 import qualified Data.Text.Lazy as Lazy
+import Data.Text.Unsafe (Iter(Iter), iter)
 import Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as Builder
 
 data Diagnostic
   = Caret
-  { caretCol :: {-# UNPACK #-} !Int
-  }
   | Span
-  { spanFrom :: {-# UNPACK #-} !Int
-  , spanTo :: {-# UNPACK #-} !Int
-  } deriving Eq
+  { spanLength :: {-# UNPACK #-} !Int
+  } deriving (Eq, Ord, Show)
 
-diagStartCol :: Diagnostic -> Int
-diagStartCol d =
-  case d of
-    Caret a -> a
-    Span a _ -> a
+data Position
+  = Offset {-# UNPACK #-} !Int
+  | Pos
+    {-# UNPACK #-} !Int -- line number
+    {-# UNPACK #-} !Int -- column number
+  deriving (Eq, Ord)
 
-data D
-  = D
-  { dLine :: {-# UNPACK #-} !Int
-  , dSort :: Diagnostic
-  , dMessage :: Message
+data Positioned
+  = Positioned
+    {-# UNPACK #-} !Int -- line
+    {-# UNPACK #-} !Int -- col
+    Diagnostic
+    Message
+  deriving (Eq, Ord, Show)
+
+data Offseted
+  = Offseted
+    {-# UNPACK #-} !Int -- offset
+    Diagnostic
+    Message
+  deriving (Eq, Ord, Show)
+
+data Report
+  = Report
+  { reportPositioned :: Set Positioned
+  , reportOffseted :: Set Offseted
   }
 
-dSize :: D -> Int
-dSize d =
-  case dSort d of
-    Caret{} -> 1
-    Span a b -> b - a
-
-dStartCol :: D -> Int
-dStartCol = diagStartCol . dSort
-
-instance Eq D where
-  D dline dsort dmsg == D dline' dsort' dmsg' =
-    dline == dline' &&
-    dsort == dsort' &&
-    dmsg == dmsg'
-
-instance Ord D where
-  compare a b =
-    case compare (dLine a) (dLine b) of
-      EQ ->
-        case compare (dStartCol a) (dStartCol b) of
-          EQ ->
-            case compare (dSize a) (dSize b) of
-              EQ ->
-                compare (dMessage a) (dMessage b)
-              x -> x
-          x -> x
-      x -> x
-
-newtype Report = Report { unReport :: Set D }
-  deriving (Semigroup, Monoid)
+instance Semigroup Report where; Report a b <> Report a' b' = Report (a <> a') (b <> b')
+instance Monoid Report where; mempty = Report mempty mempty
 
 data Message
   = Message
   { msgTitle :: Text
-  } deriving (Eq, Ord)
+  } deriving (Eq, Ord, Show)
 
 data Color
   = Color
@@ -222,51 +210,121 @@ defaultConfig =
         withColor mColors errors (Builder.singleton '^')
   }
 
+-- | Calculate the `span` of the input `Text` and additionally return the length of
+-- the prefix in `Char`s
+spanWithLength :: (Char -> Bool) -> Text -> (Int, Text, Text)
+spanWithLength p t@(Text arr off len) = (hdLen, hd, tl)
+  where
+    hd = text arr off k
+    tl = text arr (off+k) (len-k)
+    (# hdLen, !k #) = loop 0 0
+    loop !l !i
+      | i < len && p c = loop (l+1) (i+d)
+      | otherwise = (# l, i #)
+      where
+        Iter c d = iter t i
+
 renderWith ::
-  (Int -> Text -> Diagnostic -> Message -> Builder) ->
-  Int -> -- initial line number
+  (Int -> Int -> Text -> Diagnostic -> Message -> Builder) ->
+  Config ->
   Text -> -- file contents
   Report ->
   Lazy.Text
-renderWith mkErr lineNumber fileContents =
+renderWith mkErr cfg fileContents (Report positions offsets) =
   let
-    (lineContents, fileContents') = nextLine fileContents
+    (lineContentsLen, lineContents, fileContents') = nextLine fileContents
   in
-    Builder.toLazyText . go lineNumber lineContents fileContents' . Set.toAscList . unReport
+    Builder.toLazyText $
+    go
+      (if zeroIndexed cfg then 0 else 1)
+      0
+      (if zeroIndexed cfg then 0 else 1)
+      lineContents
+      lineContentsLen
+      fileContents'
+      (Set.toAscList positions)
+      (Set.toAscList offsets)
   where
     nextLine cs =
       let
-        (l, rest) = Text.span (/= '\n') cs
+        (lLen, l, rest) = spanWithLength (/= '\n') cs
         cs' =
           maybe (error "render: ran out of contents") snd (Text.uncons rest)
       in
-        (l, cs')
+        (lLen, l, cs')
 
-    go :: Int -> Text -> Text -> [D] -> Builder
-    go !line lineContents contents ds =
-      case ds of
-        [] -> mempty
-        [D dline dsort dmsg] ->
-          case compare line dline of
+    fetchOffseted1 colOffset lineStartOffset lineContentsLen line ps o@(Offseted off osort omsg) rest =
+      let
+        localOff = off - lineStartOffset
+      in
+        if 0 <= localOff
+        then
+          if localOff < lineContentsLen
+          then -- the offset is on this line
+            (# | | (# ps, rest, Positioned line (localOff + colOffset) osort omsg #) #)
+          else -- the offset is on a later line
+            (# | () | #)
+        else error $ "internal error: " <> show o <> " was left behind"
+
+    fetchOffseted ::
+      Int ->
+      Int ->
+      Int ->
+      Int ->
+      [Positioned] ->
+      [Offseted] ->
+      (#
+        () | -- finished
+        () | -- continue
+        (# [Positioned], [Offseted], Positioned #) -- consumed
+      #)
+    fetchOffseted colOffset lineStartOffset lineContentsLen line ps os =
+      case os of
+        [] -> (# | () | #)
+        o : rest -> fetchOffseted1 colOffset lineStartOffset lineContentsLen line ps o rest
+
+    fetch ::
+      Int ->
+      Int ->
+      Int ->
+      Int ->
+      [Positioned] ->
+      [Offseted] ->
+      (#
+        () | -- finished
+        () | -- continue
+        (# [Positioned], [Offseted], Positioned #) -- consumed
+      #)
+    fetch colOffset lineStartOffset lineContentsLen line ps os =
+      case ps of
+        [] ->
+          case os of
+            [] -> (# () | | #)
+            o : rest -> fetchOffseted1 colOffset lineStartOffset lineContentsLen line ps o rest
+        p@(Positioned pline _ _ _) : rest ->
+          case compare pline line of
             LT ->
-              let
-                (lineContents', contents') = nextLine contents
-              in
-                go (line+1) lineContents' contents' ds
-            EQ ->
-              mkErr line lineContents dsort dmsg
-            GT -> mempty
-        D dline dsort dmsg : rest ->
-          case compare line dline of
-            LT ->
-              let
-                (lineContents', contents') = nextLine contents
-              in
-                go (line+1) lineContents' contents' ds
-            EQ ->
-              mkErr line lineContents dsort dmsg <> Builder.singleton '\n' <>
-              go line lineContents contents rest
-            GT -> mempty
+              error $ "internal error: " <> show p <> " was left behind"
+            EQ -> (# | | (# rest, os, p #) #)
+            GT ->
+              fetchOffseted colOffset lineStartOffset lineContentsLen line ps os
+
+    go :: Int -> Int -> Int -> Text -> Int -> Text -> [Positioned] -> [Offseted] -> Builder
+    go !colOffset !lineStartOffset !line lineContents lineContentsLen contents ps os =
+      case fetch colOffset lineStartOffset lineContentsLen line ps os of
+        (# () | | #) -> mempty
+        (# | () | #) ->
+          let
+            (lineContentsLen', lineContents', contents') = nextLine contents
+          in
+            go colOffset (lineStartOffset+lineContentsLen+1) (line+1) lineContents' lineContentsLen' contents' ps os
+        (# | | (# ps', os', Positioned pline pcol psort pmsg #) #) ->
+          if null ps' && null os'
+          then
+            mkErr pline pcol lineContents psort pmsg
+          else
+            mkErr pline pcol lineContents psort pmsg <> Builder.singleton '\n' <>
+            go colOffset lineStartOffset line lineContents lineContentsLen contents ps' os'
 
 render ::
   Config ->
@@ -274,7 +332,7 @@ render ::
   Text -> -- file contents
   Report ->
   Lazy.Text
-render cfg filePath = renderWith mkErr (if zeroIndexed cfg then 0 else 1)
+render cfg filePath = renderWith mkErr cfg
   where
     errorsColor =
       case colors cfg of
@@ -301,8 +359,8 @@ render cfg filePath = renderWith mkErr (if zeroIndexed cfg then 0 else 1)
       then id
       else subtract 1
 
-    mkErr :: Int -> Text -> Diagnostic -> Message -> Builder
-    mkErr line lineContents d msg =
+    mkErr :: Int -> Int -> Text -> Diagnostic -> Message -> Builder
+    mkErr line col lineContents d msg =
       let
         lineNumber = show line
         lineNumberLength = length lineNumber
@@ -322,7 +380,7 @@ render cfg filePath = renderWith mkErr (if zeroIndexed cfg then 0 else 1)
         titleLine =
           Builder.fromText filePath <> Builder.singleton ':' <>
           lineNumberString <> Builder.singleton ':' <>
-          Builder.fromString (show $ diagStartCol  d) <> Builder.fromText ": " <>
+          Builder.fromString (show col) <> Builder.fromText ": " <>
           errorsColor (Builder.fromText "error: ") <>
           Builder.fromText (msgTitle msg)
 
@@ -332,17 +390,21 @@ render cfg filePath = renderWith mkErr (if zeroIndexed cfg then 0 else 1)
           numberedPrefix <> Builder.fromText lineContents <> Builder.singleton '\n' <>
           unnumberedPrefix <>
           case d of
-            Caret col ->
+            Caret ->
               Builder.fromText (Text.replicate (columnOffset col) $ Text.singleton ' ') <>
               renderCaret cfg (colors cfg) <>
               Builder.singleton '\n'
-            Span startcol endcol ->
-              Builder.fromText (Text.replicate (columnOffset startcol) $ Text.singleton ' ') <>
-              renderSpan cfg (colors cfg) (endcol - startcol) <>
+            Span len ->
+              Builder.fromText (Text.replicate (columnOffset col) $ Text.singleton ' ') <>
+              renderSpan cfg (colors cfg) len <>
               Builder.singleton '\n'
       in
         errorMessage
 
-emit :: Int -> Diagnostic -> Message -> Report
-emit line sort msg =
-  Report . Set.singleton $ D line sort msg
+emit :: Position -> Diagnostic -> Message -> Report
+emit pos sort msg =
+  case pos of
+    Offset off ->
+      Report { reportPositioned = mempty, reportOffseted = Set.singleton $ Offseted off sort msg }
+    Pos l c ->
+      Report { reportPositioned = Set.singleton $ Positioned l c sort msg, reportOffseted = mempty }
