@@ -14,7 +14,7 @@ main =
   in
     Lazy.putStrLn $
     render defaultConfig "filename" (Text.unlines [line1, line2, line3]) $
-      emit (Pos 1 1) Caret (Message "this is a message") <>
-      emit (Pos 1 6) (Span 3) (Message "this is another message") <>
-      emit (Pos 2 6) Caret (Message "this is the third message") <>
-      emit (Offset $ Text.length line1 + Text.length line2 + 2 + 12) Caret (Message "this is the fourth message")
+      emit (Pos 1 1) Caret "this is a message" <>
+      emit (Pos 1 6) (Span 3) "this is another message" <>
+      emit (Pos 2 6) Caret "this is the third message" <>
+      emit (Offset $ Text.length line1 + Text.length line2 + 2 + 12) Caret "this is the fourth message"

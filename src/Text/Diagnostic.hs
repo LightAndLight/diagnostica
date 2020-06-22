@@ -17,7 +17,6 @@ module Text.Diagnostic
   , renderWith
     -- * Diagnostics
   , Position(..)
-  , Message(..)
   , Diagnostic(..)
   , emit
   )
@@ -70,10 +69,8 @@ data Report
 instance Semigroup Report where; Report a b <> Report a' b' = Report (a <> a') (b <> b')
 instance Monoid Report where; mempty = Report mempty mempty
 
-data Message
-  = Message
-  { msgTitle :: Text
-  } deriving (Eq, Ord, Show)
+newtype Message = Message { unMessage :: Builder }
+  deriving (Eq, Ord, Show)
 
 data Color
   = Color
@@ -408,7 +405,7 @@ render cfg filePath = renderWith mkErr cfg
           lineNumberString <> Builder.singleton ':' <>
           Builder.fromString (show $ columnNumber layout) <> Builder.fromText ": " <>
           errorsColor (Builder.fromText "error: ") <>
-          Builder.fromText (msgTitle msg)
+          unMessage msg
 
         col = columnNumber layout
         errorMessage =
@@ -428,10 +425,21 @@ render cfg filePath = renderWith mkErr cfg
       in
         errorMessage
 
-emit :: Position -> Diagnostic -> Message -> Report
+emit ::
+  Position ->
+  Diagnostic ->
+  -- | Error message
+  Builder ->
+  Report
 emit pos sort msg =
   case pos of
     Offset off ->
-      Report { reportPositioned = mempty, reportOffseted = Set.singleton $ Offseted off sort msg }
+      Report
+      { reportPositioned = mempty
+      , reportOffseted = Set.singleton $ Offseted off sort (Message msg)
+      }
     Pos l c ->
-      Report { reportPositioned = Set.singleton $ Positioned l c sort msg, reportOffseted = mempty }
+      Report
+      { reportPositioned = Set.singleton $ Positioned l c sort (Message msg)
+      , reportOffseted = mempty
+      }

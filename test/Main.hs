@@ -13,7 +13,7 @@ main =
         let
           input =
             render (defaultConfig { zeroIndexed = True }) "filename" "here are the file contents" $
-            emit (Pos 0 0) Caret (Message "this is a message")
+            emit (Pos 0 0) Caret "this is a message"
           output =
             Lazy.unlines
             [ "filename:0:0: \ESC[91;1merror: \ESC[39;0mthis is a message"
@@ -26,7 +26,7 @@ main =
         let
           input =
             render (defaultConfig { zeroIndexed = True }) "filename" "here are the file contents" $
-            emit (Pos 0 5) (Span 3) (Message "this is a message")
+            emit (Pos 0 5) (Span 3) "this is a message"
           output =
             Lazy.unlines
             [ "filename:0:5: \ESC[91;1merror: \ESC[39;0mthis is a message"
@@ -39,8 +39,8 @@ main =
         let
           input =
             render (defaultConfig { zeroIndexed = True }) "filename" "here are the file contents" $
-            emit (Pos 0 0) Caret (Message "this is a message") <>
-            emit (Pos 0 5) (Span 3) (Message "this is another message")
+            emit (Pos 0 0) Caret "this is a message" <>
+            emit (Pos 0 5) (Span 3) "this is another message"
           output =
             Lazy.unlines
             [ "filename:0:0: \ESC[91;1merror: \ESC[39;0mthis is a message"
@@ -58,9 +58,9 @@ main =
         let
           input =
             render (defaultConfig { zeroIndexed = True }) "filename" "here are the file contents\nthis is the second line" $
-            emit (Pos 0 0) Caret (Message "this is a message") <>
-            emit (Pos 0 5) (Span 3) (Message "this is another message") <>
-            emit (Offset 39) Caret (Message "this is another another message")
+            emit (Pos 0 0) Caret "this is a message" <>
+            emit (Pos 0 5) (Span 3) "this is another message" <>
+            emit (Offset 39) Caret "this is another another message"
           output =
             Lazy.unlines
             [ "filename:0:0: \ESC[91;1merror: \ESC[39;0mthis is a message"
@@ -84,7 +84,7 @@ main =
         let
           input =
             render defaultConfig "filename" "here are the file contents" $
-            emit (Pos 1 1) Caret (Message "this is a message")
+            emit (Pos 1 1) Caret "this is a message"
           output =
             Lazy.unlines
             [ "filename:1:1: \ESC[91;1merror: \ESC[39;0mthis is a message"
@@ -97,7 +97,7 @@ main =
         let
           input =
             render defaultConfig "filename" "here are the file contents" $
-            emit (Pos 1 6) (Span 3) (Message "this is a message")
+            emit (Pos 1 6) (Span 3) "this is a message"
           output =
             Lazy.unlines
             [ "filename:1:6: \ESC[91;1merror: \ESC[39;0mthis is a message"
@@ -110,8 +110,8 @@ main =
         let
           input =
             render defaultConfig "filename" "here are the file contents" $
-            emit (Pos 1 1) Caret (Message "this is a message") <>
-            emit (Pos 1 6) (Span 3) (Message "this is another message")
+            emit (Pos 1 1) Caret "this is a message" <>
+            emit (Pos 1 6) (Span 3) "this is another message"
           output =
             Lazy.unlines
             [ "filename:1:1: \ESC[91;1merror: \ESC[39;0mthis is a message"
@@ -129,9 +129,9 @@ main =
         let
           input =
             render defaultConfig "filename" "here are the file contents\nthis is the second line" $
-            emit (Offset 0) Caret (Message "this is a message") <>
-            emit (Offset 5) (Span 3) (Message "this is another message") <>
-            emit (Offset 27) Caret (Message "this is another another message")
+            emit (Offset 0) Caret "this is a message" <>
+            emit (Offset 5) (Span 3) "this is another message" <>
+            emit (Offset 27) Caret "this is another another message"
           output =
             Lazy.unlines
             [ "filename:1:1: \ESC[91;1merror: \ESC[39;0mthis is a message"
