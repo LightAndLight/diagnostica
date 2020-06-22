@@ -1,5 +1,4 @@
 {-# language BangPatterns #-}
-{-# language GeneralizedNewtypeDeriving #-}
 {-# language OverloadedStrings #-}
 {-# language UnboxedSums, UnboxedTuples #-}
 module Text.Diagnostic
@@ -13,6 +12,8 @@ module Text.Diagnostic
   , Config(..), defaultConfig
     -- ** Rendering
   , render
+    -- *** Custom rendering
+  , Layout(..)
   , renderWith
     -- * Diagnostics
   , Position(..)
@@ -224,8 +225,17 @@ spanWithLength p t@(Text arr off len) = (hdLen, hd, tl)
       where
         Iter c d = iter t i
 
+data Layout
+  = Layout
+  -- | Create enough padding to reach a particular column
+  { padUntil :: Int -> Builder
+  , lineNumber :: Int
+  , columnNumber :: Int
+  , currentLine :: Text
+  }
+
 renderWith ::
-  (Int -> Int -> Text -> Diagnostic -> Message -> Builder) ->
+  (Layout -> Diagnostic -> Message -> Builder) ->
   Config ->
   Text -> -- file contents
   Report ->
@@ -236,15 +246,30 @@ renderWith mkErr cfg fileContents (Report positions offsets) =
   in
     Builder.toLazyText $
     go
-      (if zeroIndexed cfg then 0 else 1)
+      zeroIndexedOffset
       0
-      (if zeroIndexed cfg then 0 else 1)
+      zeroIndexedOffset
       lineContents
       lineContentsLen
       fileContents'
       (Set.toAscList positions)
       (Set.toAscList offsets)
   where
+    zeroIndexedOffset = if zeroIndexed cfg then 0 else 1
+
+    padUntilFun =
+      if zeroIndexed cfg
+      then \col -> Builder.fromText $ Text.replicate col (Text.singleton ' ')
+      else \col -> Builder.fromText $ Text.replicate (col-1) (Text.singleton ' ')
+
+    mkLayout l c cl =
+      Layout
+      { padUntil = padUntilFun
+      , lineNumber = l
+      , columnNumber = c
+      , currentLine = cl
+      }
+
     nextLine cs =
       let
         (lLen, l, rest) = spanWithLength (/= '\n') cs
@@ -321,9 +346,9 @@ renderWith mkErr cfg fileContents (Report positions offsets) =
         (# | | (# ps', os', Positioned pline pcol psort pmsg #) #) ->
           if null ps' && null os'
           then
-            mkErr pline pcol lineContents psort pmsg
+            mkErr (mkLayout pline pcol lineContents) psort pmsg
           else
-            mkErr pline pcol lineContents psort pmsg <> Builder.singleton '\n' <>
+            mkErr (mkLayout pline pcol lineContents) psort pmsg <> Builder.singleton '\n' <>
             go colOffset lineStartOffset line lineContents lineContentsLen contents ps' os'
 
 render ::
@@ -354,17 +379,12 @@ render cfg filePath = renderWith mkErr cfg
         Nothing ->
           id
 
-    columnOffset =
-      if zeroIndexed cfg
-      then id
-      else subtract 1
-
-    mkErr :: Int -> Int -> Text -> Diagnostic -> Message -> Builder
-    mkErr line col lineContents d msg =
+    mkErr :: Layout -> Diagnostic -> Message -> Builder
+    mkErr layout d msg =
       let
-        lineNumber = show line
-        lineNumberLength = length lineNumber
-        lineNumberString = Builder.fromString lineNumber
+        showLineNumber = show $ lineNumber layout
+        lineNumberLength = length showLineNumber
+        lineNumberString = Builder.fromString showLineNumber
 
         topPrefix =
           marginColor $
@@ -380,22 +400,23 @@ render cfg filePath = renderWith mkErr cfg
         titleLine =
           Builder.fromText filePath <> Builder.singleton ':' <>
           lineNumberString <> Builder.singleton ':' <>
-          Builder.fromString (show col) <> Builder.fromText ": " <>
+          Builder.fromString (show $ columnNumber layout) <> Builder.fromText ": " <>
           errorsColor (Builder.fromText "error: ") <>
           Builder.fromText (msgTitle msg)
 
+        col = columnNumber layout
         errorMessage =
           titleLine <> Builder.singleton '\n' <>
           topPrefix <> Builder.singleton '\n' <>
-          numberedPrefix <> Builder.fromText lineContents <> Builder.singleton '\n' <>
+          numberedPrefix <> Builder.fromText (currentLine layout) <> Builder.singleton '\n' <>
           unnumberedPrefix <>
           case d of
             Caret ->
-              Builder.fromText (Text.replicate (columnOffset col) $ Text.singleton ' ') <>
+              padUntil layout col <>
               renderCaret cfg (colors cfg) <>
               Builder.singleton '\n'
             Span len ->
-              Builder.fromText (Text.replicate (columnOffset col) $ Text.singleton ' ') <>
+              padUntil layout col <>
               renderSpan cfg (colors cfg) len <>
               Builder.singleton '\n'
       in
