@@ -184,9 +184,9 @@ withColor mColors get b =
 
 data Config
   = Config
-  -- | Enabled: the first line of the file is line 0, and the first column of each line is column 0
-  -- Disabled: the first line of the file is line 1, and the first column of each line is column 1
-  { zeroIndexed :: Bool
+  { -- | Enabled: the first line of the file is line 0, and the first column of each line is column 0
+    -- Disabled: the first line of the file is line 1, and the first column of each line is column 1
+    zeroIndexed :: Bool
   , colors :: Maybe Colors
   , renderSpan :: Maybe Colors -> Int -> Builder
   , renderCaret :: Maybe Colors -> Builder
@@ -222,8 +222,8 @@ spanWithLength p t@(Text arr off len) = (hdLen, hd, tl)
 
 data Layout
   = Layout
-  -- | Create enough padding to reach a particular column
-  { padUntil :: Int -> Builder
+  { -- | Create enough padding to reach a particular column
+    padUntil :: Int -> Builder
   , lineNumber :: Int
   , columnNumber :: Int
   , currentLine :: Text
