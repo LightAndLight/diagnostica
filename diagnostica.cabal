@@ -5,14 +5,17 @@ cabal-version:       2.4
 
 name:                diagnostica
 version:             0.1.0.0
-synopsis:            A library for building and rendering diagnostic messages
--- description:
--- bug-reports:
+synopsis:            A library for building and rendering error diagnostics 
+description:
+  A library for building and rendering error diagnostics, with slick and sensible defaults.
+  .
+  <<https://github.com/LightAndLight/diagnostica/blob/master/res/example1.png>>
+bug-reports:         https://github.com/LightAndLight/diagnostica/issues
 license:             BSD-3-Clause
 license-file:        LICENSE
 author:              Isaac Elliott
 maintainer:          isaace71295@gmail.com
--- copyright:
+copyright:           2020 Isaac Elliott
 category:            Language
 extra-source-files:  CHANGELOG.md
 
