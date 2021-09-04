@@ -1,18 +1,19 @@
 {-# language BangPatterns #-}
+{-# language GeneralizedNewtypeDeriving #-}
 {-# language OverloadedStrings #-}
 {-# language UnboxedSums, UnboxedTuples #-}
 module Text.Diagnostic
-  ( -- * Reports
-    Report
-    -- ** Configuration
-    -- *** Colors
+  ( Report
+    -- * Configuration
+    -- ** Colors
   , Color(..)
   , Colors(..), defaultColors
-    -- *** General
+    -- ** General
   , Config(..), defaultConfig
-    -- ** Rendering
+  , Message(..)
+    -- * Rendering
   , render
-    -- *** Custom rendering
+    -- ** Custom rendering
   , Layout(..)
   , renderWith
     -- * Diagnostics
@@ -31,6 +32,7 @@ import qualified Data.Text.Lazy as Lazy
 import Data.Text.Unsafe (Iter(Iter), iter)
 import Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as Builder
+import Data.String (IsString)
 
 data Diagnostic
   = Caret
@@ -69,7 +71,7 @@ instance Semigroup Report where; Report a b <> Report a' b' = Report (a <> a') (
 instance Monoid Report where; mempty = Report mempty mempty
 
 newtype Message = Message { unMessage :: Builder }
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, IsString)
 
 data Color
   = Color
@@ -185,6 +187,7 @@ withColor mColors get b =
 data Config
   = Config
   { -- | Enabled: the first line of the file is line 0, and the first column of each line is column 0
+    --
     -- Disabled: the first line of the file is line 1, and the first column of each line is column 1
     zeroIndexed :: Bool
   , colors :: Maybe Colors
@@ -232,7 +235,8 @@ data Layout
 renderWith ::
   (Layout -> Diagnostic -> Message -> Builder) ->
   Config ->
-  Text -> -- file contents
+  -- | File contents
+  Text ->
   Report ->
   Lazy.Text
 renderWith mkErr cfg fileContents (Report positions offsets) =
@@ -353,10 +357,14 @@ renderWith mkErr cfg fileContents (Report positions offsets) =
             mkErr (mkLayout pline pcol lineContents) psort pmsg <> Builder.singleton '\n' <>
             go colOffset lineStartOffset line lineContents lineContentsLen contents ps' os'
 
+-- | Constructs a lazy 'Lazy.Text' containing one formatted diagnostic message
+-- for each item in the 'Report'.
 render ::
   Config ->
-  Text -> -- filename
-  Text -> -- file contents
+  -- | File name
+  Text -> 
+  -- | File contents
+  Text ->
   Report ->
   Lazy.Text
 render cfg filePath = renderWith mkErr cfg
@@ -427,18 +435,17 @@ render cfg filePath = renderWith mkErr cfg
 emit ::
   Position ->
   Diagnostic ->
-  -- | Error message
-  Builder ->
+  Message ->
   Report
 emit pos sort msg =
   case pos of
     Offset off ->
       Report
       { reportPositioned = mempty
-      , reportOffseted = Set.singleton $ Offseted off sort (Message msg)
+      , reportOffseted = Set.singleton $ Offseted off sort msg
       }
     Pos l c ->
       Report
-      { reportPositioned = Set.singleton $ Positioned l c sort (Message msg)
+      { reportPositioned = Set.singleton $ Positioned l c sort msg
       , reportOffseted = mempty
       }
