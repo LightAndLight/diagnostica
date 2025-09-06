@@ -44,6 +44,7 @@ test-suite diagnostica-test
   hs-source-dirs:      test
   main-is:             Main.hs
   build-depends:       base >=4.10.0.0 && <5
+                     , bytestring
                      , diagnostica
                      , hspec
                      , text >=1.2
