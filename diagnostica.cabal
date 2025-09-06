@@ -23,6 +23,7 @@ library
   exposed-modules:     Text.Diagnostic
   build-depends:       base >=4.10.0.0 && <5
                      , ansi-terminal >=0.9
+                     , bytestring
                      , containers >=0.6
                      , text >=1.2
   hs-source-dirs:      src

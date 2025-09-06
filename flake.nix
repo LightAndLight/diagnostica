@@ -15,6 +15,7 @@
 
             just
             haskellPackages.fourmolu
+            haskellPackages.implicit-hie
             fd
           ];
         };

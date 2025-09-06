@@ -1,11 +1,13 @@
 {-# language OverloadedStrings #-}
 module Main where
 
-import qualified Data.Text.Lazy as Lazy
+import qualified Data.ByteString.Lazy.Char8 as Lazy
 import Text.Diagnostic
 import Test.Hspec
 import qualified Data.Text.Encoding as Text.Encoding
 import qualified Data.ByteString as ByteString
+import Data.Text (Text)
+import Data.String (fromString)
 
 main :: IO ()
 main =
@@ -83,20 +85,20 @@ main =
         input `shouldBe` output
       it "non-ascii" $ do
         let
-          line1 = "😎😎😎😎😎😎"
+          line1 = Lazy.fromStrict $ Text.Encoding.encodeUtf8 ("😎😎😎😎😎😎" :: Text)
           line2 = "error is here"
           input =
             render (defaultConfig { zeroIndexed = True }) "filename" (line1 <> "\n" <> line2) $
             emit
-              (Offset $ ByteString.length (Text.Encoding.encodeUtf8 line1) + ByteString.length "error is " + 1)
+              (Offset $ fromIntegral (Lazy.length line1) + ByteString.length "error is " + 1)
               (Span 4)
               "this is a message"
           output =
             Lazy.unlines
-            [ "filename:0:0: \ESC[91;1merror: \ESC[39;0mthis is a message"
+            [ "filename:1:" <> fromString (show $ ByteString.length "error is ") <> ": \ESC[91;1merror: \ESC[39;0mthis is a message"
             , "\ESC[34;1m  |\ESC[39;0m"
-            , "\ESC[34;1m0 | \ESC[39;0merror is here"
-            , "\ESC[34;1m  |          \ESC[39;0m\ESC[91;1m^^^^\ESC[39;0m"
+            , "\ESC[34;1m1 | \ESC[39;0merror is here"
+            , "\ESC[34;1m  | \ESC[39;0m         \ESC[91;1m^^^^\ESC[39;0m"
             ]
         input `shouldBe` output
     describe "examples - 1-indexed" $ do

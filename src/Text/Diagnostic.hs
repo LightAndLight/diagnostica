@@ -1,7 +1,7 @@
 {-# language BangPatterns #-}
 {-# language GeneralizedNewtypeDeriving #-}
 {-# language OverloadedStrings #-}
-{-# language UnboxedSums, UnboxedTuples #-}
+{-# language UnboxedTuples #-}
 module Text.Diagnostic
   ( Report
     -- * Configuration
@@ -26,13 +26,16 @@ where
 import qualified System.Console.ANSI.Types as ANSI
 import Data.Set (Set)
 import qualified Data.Set as Set
-import qualified Data.Text as Text
-import Data.Text.Internal (Text(Text), text)
-import qualified Data.Text.Lazy as Lazy
-import Data.Text.Unsafe (Iter(Iter), iter)
-import Data.Text.Lazy.Builder (Builder)
-import qualified Data.Text.Lazy.Builder as Builder
-import Data.String (IsString)
+import Data.ByteString.Builder (Builder)
+import qualified Data.ByteString.Builder as Builder
+import Data.String (IsString, fromString)
+import qualified Data.ByteString.Lazy as Lazy (ByteString)
+import Data.ByteString (ByteString)
+import qualified Data.ByteString.Lazy as ByteString.Lazy
+import Data.Word (Word8)
+import qualified Data.ByteString as ByteString
+import Data.Char (ord)
+import qualified Data.ByteString.Char8 as ByteString.Char8
 
 data Diagnostic
   = Caret
@@ -71,7 +74,13 @@ instance Semigroup Report where; Report a b <> Report a' b' = Report (a <> a') (
 instance Monoid Report where; mempty = Report mempty mempty
 
 newtype Message = Message { unMessage :: Builder }
-  deriving (Eq, Ord, Show, IsString)
+  deriving (Show, IsString)
+
+instance Eq Message where
+  Message a == Message b = Builder.toLazyByteString a == Builder.toLazyByteString b
+
+instance Ord Message where
+  Message a `compare` Message b = Builder.toLazyByteString a `compare` Builder.toLazyByteString b
 
 data Color
   = Color
@@ -80,7 +89,7 @@ data Color
   , color :: ANSI.Color
   }
 
-colorCode :: Color -> Text
+colorCode :: Color -> ByteString
 colorCode c =
   case c of
     Color conI colI col ->
@@ -152,7 +161,7 @@ colorCode c =
                 ANSI.Cyan -> "\ESC[36m"
                 ANSI.White -> "\ESC[37m"
 
-endColorCode :: Color -> Text
+endColorCode :: Color -> ByteString
 endColorCode _ = "\ESC[39;0m"
 
 data Colors
@@ -180,9 +189,9 @@ withColor mColors get b =
       let
         c = get cs
       in
-        Builder.fromText (colorCode c) <>
+        Builder.byteString (colorCode c) <>
         b <>
-        Builder.fromText (endColorCode c)
+        Builder.byteString (endColorCode c)
 
 data Config
   = Config
@@ -203,25 +212,21 @@ defaultConfig =
   , renderSpan =
       \mColors len ->
         withColor mColors errors
-          (Builder.fromText . Text.replicate len $ Text.singleton '^')
+          (Builder.byteString $ ByteString.Char8.replicate len '^')
   , renderCaret =
       \mColors ->
-        withColor mColors errors (Builder.singleton '^')
+        withColor mColors errors (Builder.byteString "^")
   }
 
--- | Calculate the `span` of the input `Text` and additionally return the length of
--- the prefix in `Char`s
-spanWithLength :: (Char -> Bool) -> Text -> (Int, Text, Text)
-spanWithLength p t@(Text arr off len) = (hdLen, hd, tl)
-  where
-    hd = text arr off k
-    tl = text arr (off+k) (len-k)
-    (# hdLen, !k #) = loop 0 0
-    loop !l !i
-      | i < len && p c = loop (l+1) (i+d)
-      | otherwise = (# l, i #)
-      where
-        Iter c d = iter t i
+-- | Equivalent to @\f x -> let (prefix, rest) = span f xs in (length prefix, prefix, rest)@
+spanWithLength :: (Word8 -> Bool) -> Lazy.ByteString -> (Int, ByteString, Lazy.ByteString)
+spanWithLength p bs =
+  let
+    (prefixLazy, rest) = ByteString.Lazy.span p bs
+    !prefix = ByteString.Lazy.toStrict prefixLazy
+    !prefixLen = ByteString.length prefix
+  in
+    (prefixLen, prefix, rest)
 
 data Layout
   = Layout
@@ -229,21 +234,21 @@ data Layout
     padUntil :: Int -> Builder
   , lineNumber :: Int
   , columnNumber :: Int
-  , currentLine :: Text
+  , currentLine :: ByteString
   }
 
 renderWith ::
   (Layout -> Diagnostic -> Message -> Builder) ->
   Config ->
   -- | File contents
-  Text ->
+  Lazy.ByteString ->
   Report ->
-  Lazy.Text
+  Lazy.ByteString
 renderWith mkErr cfg fileContents (Report positions offsets) =
   let
     (lineContentsLen, lineContents, fileContents') = nextLine fileContents
   in
-    Builder.toLazyText $
+    Builder.toLazyByteString $
     go
       zeroIndexedOffset
       0
@@ -258,9 +263,17 @@ renderWith mkErr cfg fileContents (Report positions offsets) =
 
     padUntilFun =
       if zeroIndexed cfg
-      then \col -> Builder.fromText $ Text.replicate col (Text.singleton ' ')
-      else \col -> Builder.fromText $ Text.replicate (col-1) (Text.singleton ' ')
+      then \col -> Builder.byteString $ ByteString.Char8.replicate col ' '
+      else \col -> Builder.byteString $ ByteString.Char8.replicate (col-1) ' '
 
+    mkLayout ::
+      -- | Line
+      Int ->
+      -- | Column
+      Int ->
+      -- | Current line
+      ByteString ->
+      Layout
     mkLayout l c cl =
       Layout
       { padUntil = padUntilFun
@@ -269,11 +282,19 @@ renderWith mkErr cfg fileContents (Report positions offsets) =
       , currentLine = cl
       }
 
+    nextLine ::
+      Lazy.ByteString ->
+      ( Int
+      -- line
+      , ByteString
+      -- remaining
+      , Lazy.ByteString
+      )
     nextLine cs =
       let
-        (lLen, l, rest) = spanWithLength (/= '\n') cs
+        (lLen, l, rest) = spanWithLength (/= fromIntegral (ord '\n')) cs
         cs' =
-          maybe (error "render: ran out of contents") snd (Text.uncons rest)
+          maybe (error "render: ran out of contents") snd (ByteString.Lazy.uncons rest)
       in
         -- either span finds a newline, or it consumes the whole string
         -- in the former case, the +1 allows offsets to point to the newline character of a line
@@ -340,7 +361,22 @@ renderWith mkErr cfg fileContents (Report positions offsets) =
             GT ->
               fetchOffseted colOffset lineStartOffset lineContentsLen line ps os
 
-    go :: Int -> Int -> Int -> Text -> Int -> Text -> [Positioned] -> [Offseted] -> Builder
+    go ::
+      -- | Column offset
+      Int ->
+      -- | Line start offset
+      Int ->
+      -- | Line
+      Int ->
+      -- | Line contents
+      ByteString ->
+      -- | Line contents length
+      Int ->
+      -- | File contents
+      Lazy.ByteString ->
+      [Positioned] ->
+      [Offseted] ->
+      Builder
     go !colOffset !lineStartOffset !line lineContents lineContentsLen contents ps os =
       case fetch colOffset lineStartOffset lineContentsLen line ps os of
         (# () | | #) -> mempty
@@ -354,28 +390,28 @@ renderWith mkErr cfg fileContents (Report positions offsets) =
           then
             mkErr (mkLayout pline pcol lineContents) psort pmsg
           else
-            mkErr (mkLayout pline pcol lineContents) psort pmsg <> Builder.singleton '\n' <>
+            mkErr (mkLayout pline pcol lineContents) psort pmsg <> Builder.byteString "\n" <>
             go colOffset lineStartOffset line lineContents lineContentsLen contents ps' os'
 
--- | Constructs a lazy 'Lazy.Text' containing one formatted diagnostic message
+-- | Constructs a lazy 'Lazy.ByteString' containing one formatted diagnostic message
 -- for each item in the 'Report'.
 render ::
   Config ->
   -- | File name
-  Text -> 
+  ByteString -> 
   -- | File contents
-  Text ->
+  Lazy.ByteString ->
   Report ->
-  Lazy.Text
+  Lazy.ByteString
 render cfg filePath = renderWith mkErr cfg
   where
     errorsColor =
       case colors cfg of
         Just cs ->
           \x ->
-          Builder.fromText (colorCode $ errors cs) <>
+          Builder.byteString (colorCode $ errors cs) <>
           x <>
-          Builder.fromText "\ESC[39;0m"
+          "\ESC[39;0m"
         Nothing ->
           id
 
@@ -383,9 +419,9 @@ render cfg filePath = renderWith mkErr cfg
       case colors cfg of
         Just cs ->
           \x ->
-          Builder.fromText (colorCode $ margin cs) <>
+          Builder.byteString(colorCode $ margin cs) <>
           x <>
-          Builder.fromText "\ESC[39;0m"
+          "\ESC[39;0m"
         Nothing ->
           id
 
@@ -394,41 +430,41 @@ render cfg filePath = renderWith mkErr cfg
       let
         showLineNumber = show $ lineNumber layout
         lineNumberLength = length showLineNumber
-        lineNumberString = Builder.fromString showLineNumber
+        lineNumberString = fromString showLineNumber
 
         topPrefix =
           marginColor $
-          Builder.fromText (Text.replicate (lineNumberLength + 1) (Text.singleton ' ')) <>
-          Builder.singleton '|'
+          Builder.byteString (ByteString.Char8.replicate (lineNumberLength + 1) ' ') <>
+          Builder.byteString "|"
         numberedPrefix =
-          marginColor $ lineNumberString <> Builder.fromText " | "
+          marginColor $ lineNumberString <> Builder.byteString " | "
         unnumberedPrefix =
           marginColor $
-          Builder.fromText (Text.replicate (lineNumberLength + 1) (Text.singleton ' ')) <>
-          Builder.fromText "| "
+          Builder.byteString (ByteString.Char8.replicate (lineNumberLength + 1) ' ') <>
+          Builder.byteString "| "
 
         titleLine =
-          Builder.fromText filePath <> Builder.singleton ':' <>
-          lineNumberString <> Builder.singleton ':' <>
-          Builder.fromString (show $ columnNumber layout) <> Builder.fromText ": " <>
-          errorsColor (Builder.fromText "error: ") <>
+          Builder.byteString filePath <> Builder.byteString ":" <>
+          lineNumberString <> Builder.byteString ":" <>
+          fromString (show $ columnNumber layout) <> Builder.byteString ": " <>
+          errorsColor (Builder.byteString "error: ") <>
           unMessage msg
 
         col = columnNumber layout
         errorMessage =
-          titleLine <> Builder.singleton '\n' <>
-          topPrefix <> Builder.singleton '\n' <>
-          numberedPrefix <> Builder.fromText (currentLine layout) <> Builder.singleton '\n' <>
+          titleLine <> Builder.char8 '\n' <>
+          topPrefix <> Builder.char8 '\n' <>
+          numberedPrefix <> Builder.byteString (currentLine layout) <> Builder.char8 '\n' <>
           unnumberedPrefix <>
           case d of
             Caret ->
               padUntil layout col <>
               renderCaret cfg (colors cfg) <>
-              Builder.singleton '\n'
+              Builder.char8 '\n'
             Span len ->
               padUntil layout col <>
               renderSpan cfg (colors cfg) len <>
-              Builder.singleton '\n'
+              Builder.char8 '\n'
       in
         errorMessage
 
