@@ -1,9 +1,9 @@
 {-# language OverloadedStrings #-}
 module Main where
 
-import qualified Data.Text as Text
-import qualified Data.Text.Lazy.IO as Lazy
 import Text.Diagnostic
+import qualified Data.ByteString.Lazy.Char8 as LazyByteString.Char8
+import qualified Data.ByteString.Lazy as LazyByteString
 
 main :: IO ()
 main =
@@ -12,9 +12,9 @@ main =
     line2 = "this is the second line"
     line3 = "this is the third line"
   in
-    Lazy.putStrLn $
-    render defaultConfig "filename" (Text.unlines [line1, line2, line3]) $
+    LazyByteString.Char8.putStrLn $
+    render defaultConfig "filename" (LazyByteString.Char8.unlines [line1, line2, line3]) $
       emit (Pos 1 1) Caret "this is a message" <>
       emit (Pos 1 6) (Span 3) "this is another message" <>
       emit (Pos 2 6) Caret "this is the third message" <>
-      emit (Offset $ Text.length line1 + Text.length line2 + 2 + 12) Caret "this is the fourth message"
+      emit (Offset $ fromIntegral (LazyByteString.length line1) + fromIntegral (LazyByteString.length line2) + 2 + 12) Caret "this is the fourth message"

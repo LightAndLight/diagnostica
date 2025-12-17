@@ -35,8 +35,8 @@ executable example
   hs-source-dirs:      example
   main-is:             Main.hs
   build-depends:       base >=4.10.0.0 && <5
+                     , bytestring
                      , diagnostica
-                     , text >=1.2
   ghc-options:         -Wall -Werror
 
 test-suite diagnostica-test
